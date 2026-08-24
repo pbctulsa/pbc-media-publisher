@@ -59,6 +59,15 @@ main { width: min(920px, calc(100% - 40px)); margin: 58px auto 42px; flex: 1; }
 .file-copy strong { font-size: 13px; }
 .file-copy span { color: var(--muted); font-size: 11px; margin-top: 4px; }
 .selected-file button { border: 0; background: transparent; color: #8a4e43; font-size: 11px; cursor: pointer; }
+.selected-file button:disabled { color: #aab1ae; cursor: not-allowed; }
+.upload-progress { margin: -7px 31px 27px; padding: 15px 17px; border: 1px solid #d8e3dd; border-radius: 11px; background: #f5f9f6; }
+.progress-copy { display: flex; align-items: center; justify-content: space-between; font-size: 12px; }
+.progress-copy span { color: var(--green-2); font-weight: 700; }
+.progress-track { height: 7px; margin-top: 10px; overflow: hidden; border-radius: 999px; background: #dce6e0; }
+.progress-track span { display: block; width: 0; height: 100%; border-radius: inherit; background: var(--green-2); transition: width .2s ease; }
+.upload-progress p { margin: 8px 0 0; color: var(--muted); font-size: 10px; }
+.upload-progress.upload-complete { border-color: #bed7c8; background: #f0f8f3; }
+.upload-progress.upload-error { border-color: #e6c6c1; background: #fff6f4; }
 .card-footer { border-top: 1px solid var(--line); padding: 20px 31px; display: flex; align-items: center; justify-content: space-between; gap: 20px; }
 .card-footer p { margin: 0; color: var(--muted); font-size: 11px; }
 .lock-icon { filter: grayscale(1); font-size: 10px; margin-right: 4px; }
@@ -78,9 +87,8 @@ footer span { margin: 0 7px; }
   main { margin-top: 38px; }.intro { margin-bottom: 28px; }
   .steps small { display: none; }.steps li { gap: 6px; }.steps li:not(:last-child)::after { display: none; }
   .card-heading, .card-footer { padding-left: 20px; padding-right: 20px; }
-  .drop-zone, .selected-file { margin-left: 20px; margin-right: 20px; }
+  .drop-zone, .selected-file, .upload-progress { margin-left: 20px; margin-right: 20px; }
   .card-footer { align-items: stretch; flex-direction: column; }.primary-button { width: 100%; }
   .destination-strip { align-items: flex-start; gap: 12px; padding: 16px 18px; flex-direction: column; }
   .destination-strip ul { width: 100%; gap: 10px; justify-content: space-between; flex-wrap: wrap; }
 }
-

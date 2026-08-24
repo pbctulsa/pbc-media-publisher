@@ -10,7 +10,7 @@ The finished workflow will let a volunteer trim and export the sermon on the chu
 
 ## Current status
 
-The deployable Cloudflare Worker and first upload-screen prototype are in place. The screen only previews a video locally; it does **not** upload or publish anything yet. This keeps the first deployment safe while authentication and service credentials are configured.
+The portal is deployed at `https://sermon-publisher.pbctulsa.org` and protected by Cloudflare Access. Resumable large-video upload support is implemented; it becomes active when the Stream API token is stored as the Worker's `CLOUDFLARE_STREAM_TOKEN` secret. Uploading to YouTube and Planning Center remains disabled.
 
 ## Planned publishing flow
 
@@ -43,9 +43,8 @@ npm run check
 
 These values must be stored as Cloudflare secrets and must never be committed:
 
-- Cloudflare Stream API credentials
+- Cloudflare Stream API token with Stream Write permission (`CLOUDFLARE_STREAM_TOKEN`)
 - Google OAuth client ID, client secret, and YouTube refresh token
 - Planning Center client ID and secret
 
 The YouTube API key used by the existing sermon sync can read public playlist data, but uploading videos requires OAuth authorization from the church YouTube account.
-

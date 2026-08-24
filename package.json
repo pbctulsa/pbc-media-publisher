@@ -4,13 +4,18 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "wrangler dev",
-    "deploy": "wrangler deploy",
-    "check": "tsc --noEmit && wrangler deploy --dry-run",
+    "build:web": "esbuild web/app.js --bundle --format=esm --minify --outfile=public/app.js",
+    "dev": "npm run build:web && wrangler dev",
+    "deploy": "npm run build:web && wrangler deploy",
+    "check": "npm run build:web && tsc --noEmit && wrangler deploy --dry-run",
     "types": "wrangler types"
+  },
+  "dependencies": {
+    "tus-js-client": "^4.3.1"
   },
   "devDependencies": {
     "@types/node": "^24.3.0",
+    "esbuild": "^0.25.9",
     "typescript": "^5.9.2",
     "wrangler": "^4.125.0"
   }

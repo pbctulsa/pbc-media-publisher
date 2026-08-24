@@ -55,9 +55,15 @@
             <button id="remove-file" type="button" aria-label="Remove selected video">Remove</button>
           </div>
 
+          <div class="upload-progress" id="upload-progress" hidden aria-live="polite">
+            <div class="progress-copy"><strong id="progress-title">Uploading securely…</strong><span id="progress-percent">0%</span></div>
+            <div class="progress-track"><span id="progress-bar"></span></div>
+            <p id="progress-message">Keep this window open. If the connection drops, the upload can resume.</p>
+          </div>
+
           <div class="card-footer">
             <p><span class="lock-icon" aria-hidden="true">&#128274;</span> The original file stays private while it uploads.</p>
-            <button class="primary-button" id="continue-button" type="button" disabled>Continue to details <span aria-hidden="true">→</span></button>
+            <button class="primary-button" id="continue-button" type="button" disabled>Upload video <span aria-hidden="true">→</span></button>
           </div>
         </section>
 
@@ -77,4 +83,3 @@
     <script src="/app.js" type="module"></script>
   </body>
 </html>
-
