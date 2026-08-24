@@ -4,6 +4,7 @@ const YOUTUBE_SCOPES = [
 ].join(" ");
 const YOUTUBE_CHUNK_BYTES = 8 * 1024 * 1024;
 const MAX_VIDEO_BYTES = 256 * 1024 ** 3;
+const MAX_YOUTUBE_TITLE_CHARACTERS = 100;
 
 const input = document.querySelector("#video-file");
 const dropZone = document.querySelector("#drop-zone");
@@ -130,9 +131,13 @@ function sermonDetails() {
   };
 }
 
+function youtubeTitle(details) {
+  return `${details.title} | ${details.speaker} | ${friendlyDate(details.date)}`;
+}
+
 function fillReview() {
   const details = sermonDetails();
-  document.querySelector("#review-title").textContent = details.title;
+  document.querySelector("#review-title").textContent = youtubeTitle(details);
   document.querySelector("#review-speaker").textContent = details.speaker;
   document.querySelector("#review-date").textContent = friendlyDate(details.date);
   document.querySelector("#review-scripture").textContent = details.scripture || "—";
@@ -201,7 +206,7 @@ async function startYouTubeSession(accessToken, details) {
     },
     body: JSON.stringify({
       snippet: {
-        title: details.title,
+        title: youtubeTitle(details),
         description: youtubeDescription(details),
         categoryId: "29",
         defaultLanguage: "en"
@@ -343,6 +348,11 @@ removeButton.addEventListener("click", clearFile);
 detailsButton.addEventListener("click", () => showStep(2));
 reviewButton.addEventListener("click", () => {
   if (!detailsForm.reportValidity()) return;
+  const formattedTitle = youtubeTitle(sermonDetails());
+  if (formattedTitle.length > MAX_YOUTUBE_TITLE_CHARACTERS) {
+    window.alert(`The formatted YouTube title is ${formattedTitle.length} characters. Please shorten the sermon title or speaker name by at least ${formattedTitle.length - MAX_YOUTUBE_TITLE_CHARACTERS} characters.`);
+    return;
+  }
   fillReview();
   showStep(3);
 });
