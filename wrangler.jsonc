@@ -5,9 +5,6 @@
   "compatibility_date": "2026-08-23",
   "compatibility_flags": ["nodejs_compat"],
   "workers_dev": false,
-  "vars": {
-    "CLOUDFLARE_ACCOUNT_ID": "e9bd9e33e6924af495f3a8a4c7e4f1c3"
-  },
   "routes": [
     {
       "pattern": "sermon-publisher.pbctulsa.org",

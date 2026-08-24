@@ -10,9 +10,6 @@
     "check": "npm run build:web && tsc --noEmit && wrangler deploy --dry-run",
     "types": "wrangler types"
   },
-  "dependencies": {
-    "tus-js-client": "^4.3.1"
-  },
   "devDependencies": {
     "@types/node": "^24.3.0",
     "esbuild": "^0.25.9",

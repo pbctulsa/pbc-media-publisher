@@ -29,12 +29,12 @@
         </section>
 
         <ol class="steps" aria-label="Publishing progress">
-          <li class="active"><span>1</span><div><strong>Video</strong><small>Choose the finished file</small></div></li>
-          <li><span>2</span><div><strong>Details</strong><small>Title, speaker, and date</small></div></li>
-          <li><span>3</span><div><strong>Review</strong><small>Check before publishing</small></div></li>
+          <li class="active" data-step-indicator="1"><span>1</span><div><strong>Video</strong><small>Choose the finished file</small></div></li>
+          <li data-step-indicator="2"><span>2</span><div><strong>Details</strong><small>Title, speaker, and date</small></div></li>
+          <li data-step-indicator="3"><span>3</span><div><strong>Review</strong><small>Check before publishing</small></div></li>
         </ol>
 
-        <section class="workspace-card">
+        <section class="workspace-card wizard-panel" data-step="1">
           <div class="card-heading">
             <div><p class="step-label">Step 1 of 3</p><h2>Choose the sermon video</h2></div>
             <span class="file-hint">MP4 or MOV</span>
@@ -56,15 +56,67 @@
             <button id="remove-file" type="button" aria-label="Remove selected video">Remove</button>
           </div>
 
+          <div class="card-footer">
+            <p>The video will upload directly to YouTube—no Cloudflare storage needed.</p>
+            <button class="primary-button" id="details-button" type="button" disabled>Continue to details <span aria-hidden="true">→</span></button>
+          </div>
+        </section>
+
+        <section class="workspace-card wizard-panel" data-step="2" hidden>
+          <div class="card-heading">
+            <div><p class="step-label">Step 2 of 3</p><h2>Add the sermon details</h2></div>
+            <span class="file-hint">Required fields *</span>
+          </div>
+
+          <form class="details-form" id="details-form">
+            <label class="form-field full"><span>Sermon title *</span><input id="sermon-title" name="title" required maxlength="100" placeholder="A title people will recognize" /></label>
+            <label class="form-field"><span>Speaker *</span><input id="sermon-speaker" name="speaker" required maxlength="80" placeholder="Pastor or guest speaker" /></label>
+            <label class="form-field"><span>Sermon date *</span><input id="sermon-date" name="date" required type="date" /></label>
+            <label class="form-field"><span>Scripture</span><input id="sermon-scripture" name="scripture" maxlength="120" placeholder="Example: John 3:16–21" /></label>
+            <label class="form-field"><span>YouTube visibility *</span><select id="sermon-visibility" name="visibility"><option value="public">Public</option><option value="unlisted">Unlisted</option><option value="private">Private</option></select></label>
+            <label class="form-field full"><span>Description</span><textarea id="sermon-description" name="description" rows="5" maxlength="4000" placeholder="Optional sermon summary or notes"></textarea></label>
+          </form>
+
+          <div class="card-footer">
+            <button class="text-button" data-back-to="1" type="button">← Back</button>
+            <button class="primary-button" id="review-button" type="button">Review sermon <span aria-hidden="true">→</span></button>
+          </div>
+        </section>
+
+        <section class="workspace-card wizard-panel" data-step="3" hidden>
+          <div class="card-heading">
+            <div><p class="step-label">Step 3 of 3</p><h2>Review and publish</h2></div>
+            <span class="file-hint">Nothing publishes until you confirm</span>
+          </div>
+
+          <div class="review-layout">
+            <div class="review-video"><video id="review-preview" controls preload="metadata"></video></div>
+            <dl class="review-details">
+              <div><dt>Title</dt><dd id="review-title"></dd></div>
+              <div><dt>Speaker</dt><dd id="review-speaker"></dd></div>
+              <div><dt>Date</dt><dd id="review-date"></dd></div>
+              <div><dt>Scripture</dt><dd id="review-scripture"></dd></div>
+              <div><dt>Visibility</dt><dd id="review-visibility"></dd></div>
+            </dl>
+          </div>
+
+          <div class="publish-note"><b class="youtube">▶</b><div><strong>Publishes to the PBC Sermons playlist</strong><span>The daily sync will then add it to Church Center automatically.</span></div></div>
+
+          <div class="status-message" id="status-message" hidden role="alert"></div>
           <div class="upload-progress" id="upload-progress" hidden aria-live="polite">
-            <div class="progress-copy"><strong id="progress-title">Uploading securely…</strong><span id="progress-percent">0%</span></div>
+            <div class="progress-copy"><strong id="progress-title">Uploading directly to YouTube…</strong><span id="progress-percent">0%</span></div>
             <div class="progress-track"><span id="progress-bar"></span></div>
-            <p id="progress-message">Keep this window open. If the connection drops, the upload can resume.</p>
+            <p id="progress-message">Keep this window open until the video is finished.</p>
+          </div>
+          <div class="publish-success" id="publish-success" hidden>
+            <strong>Sermon published successfully</strong>
+            <span>It is on YouTube and in the PBC Sermons playlist.</span>
+            <a id="youtube-video-link" href="#" target="_blank" rel="noopener">View on YouTube →</a>
           </div>
 
           <div class="card-footer">
-            <p><span class="lock-icon" aria-hidden="true">&#128274;</span> The original file stays private while it uploads.</p>
-            <button class="primary-button" id="continue-button" type="button" disabled>Upload video <span aria-hidden="true">→</span></button>
+            <button class="text-button" data-back-to="2" type="button">← Back</button>
+            <button class="primary-button publish-button" id="publish-button" type="button"><span class="youtube-button-icon">▶</span> Authorize &amp; publish</button>
           </div>
         </section>
 
@@ -73,7 +125,7 @@
           <ul>
             <li><b class="youtube">▶</b> YouTube</li>
             <li><b class="church">P</b> Church Center</li>
-            <li><b class="podcast">●</b> Apple & Spotify</li>
+            <li class="pending-destination"><b class="podcast">●</b> Podcast <small>coming next</small></li>
           </ul>
         </aside>
       </main>
@@ -81,6 +133,7 @@
       <footer>Built for the PBC media team <span>•</span> Tulsa, Oklahoma</footer>
     </div>
 
+    <script src="https://accounts.google.com/gsi/client" async defer></script>
     <script src="/app.js" type="module"></script>
   </body>
 </html>
