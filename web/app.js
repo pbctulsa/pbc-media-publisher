@@ -87,7 +87,10 @@ async function beginUpload() {
     retryDelays: [0, 1000, 3000, 5000, 10000, 20000],
     metadata: {
       filename: chosenFile.name,
-      filetype: chosenFile.type || "video/mp4"
+      filetype: chosenFile.type || "video/mp4",
+      ...(Number.isFinite(preview.duration) && preview.duration > 0
+        ? { durationseconds: String(Math.ceil(preview.duration)) }
+        : {})
     },
     removeFingerprintOnSuccess: true,
     onError(error) {
@@ -144,4 +147,3 @@ window.addEventListener("beforeunload", (event) => {
   event.preventDefault();
   event.returnValue = "";
 });
-

@@ -45,6 +45,27 @@ function safeFilename(metadataHeader: string | null): string {
   return "PBC sermon upload";
 }
 
+function metadataValue(metadataHeader: string | null, expectedKey: string): string | undefined {
+  if (!metadataHeader) return undefined;
+
+  for (const entry of metadataHeader.split(",")) {
+    const [key, encodedValue] = entry.trim().split(" ", 2);
+    if (key !== expectedKey || !encodedValue) continue;
+    return decodeMetadataValue(encodedValue);
+  }
+
+  return undefined;
+}
+
+function reservedDurationSeconds(metadataHeader: string | null): number {
+  const requestedDuration = Number(metadataValue(metadataHeader, "durationseconds"));
+  if (!Number.isFinite(requestedDuration) || requestedDuration <= 0) {
+    return 90 * 60;
+  }
+
+  return Math.min(MAX_DURATION_SECONDS, Math.max(60, Math.ceil(requestedDuration) + 60));
+}
+
 async function createStreamUpload(request: Request, env: Env): Promise<Response> {
   const uploadLength = Number(request.headers.get("Upload-Length"));
   if (!Number.isSafeInteger(uploadLength) || uploadLength <= 0) {
@@ -63,11 +84,13 @@ async function createStreamUpload(request: Request, env: Env): Promise<Response>
     return json({ error: "Video storage is not connected yet." }, { status: 503 });
   }
 
-  const filename = safeFilename(request.headers.get("Upload-Metadata"));
+  const clientMetadata = request.headers.get("Upload-Metadata");
+  const filename = safeFilename(clientMetadata);
+  const maxDurationSeconds = reservedDurationSeconds(clientMetadata);
   const expiry = new Date(Date.now() + 6 * 60 * 60 * 1000).toISOString();
   const uploadMetadata = [
     `name ${encodeMetadataValue(filename)}`,
-    `maxDurationSeconds ${encodeMetadataValue(String(MAX_DURATION_SECONDS))}`,
+    `maxDurationSeconds ${encodeMetadataValue(String(maxDurationSeconds))}`,
     "requiresignedurls",
     `expiry ${encodeMetadataValue(expiry)}`
   ].join(",");
@@ -87,10 +110,12 @@ async function createStreamUpload(request: Request, env: Env): Promise<Response>
 
   const location = streamResponse.headers.get("Location");
   if (!streamResponse.ok || !location) {
+    const responseBody = (await streamResponse.text()).slice(0, 1200);
     console.error(JSON.stringify({
       event: "stream_upload_url_failed",
       status: streamResponse.status,
-      hasLocation: Boolean(location)
+      hasLocation: Boolean(location),
+      responseBody
     }));
     return json({ error: "Cloudflare could not prepare the video upload. Please try again." }, { status: 502 });
   }
