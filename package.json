@@ -1,0 +1,17 @@
+{
+  "name": "pbc-media-publisher",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "check": "tsc --noEmit && wrangler deploy --dry-run",
+    "types": "wrangler types"
+  },
+  "devDependencies": {
+    "@types/node": "^24.3.0",
+    "typescript": "^5.9.2",
+    "wrangler": "^4.125.0"
+  }
+}

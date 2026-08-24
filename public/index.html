@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#173a34" />
+    <title>PBC Sermon Publisher</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Newsreader:opsz,wght@6..72,600&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="page-shell">
+      <header class="site-header">
+        <a class="brand" href="/" aria-label="PBC Sermon Publisher home">
+          <span class="brand-mark" aria-hidden="true">P</span>
+          <span><strong>Peniel Baptist Church</strong><small>Sermon Publisher</small></span>
+        </a>
+        <span class="setup-badge"><span></span> Setup mode</span>
+      </header>
+
+      <main>
+        <section class="intro">
+          <p class="eyebrow">One upload. Everywhere it needs to go.</p>
+          <h1>Publish this week’s sermon</h1>
+          <p>Choose the finished video from the church iMac, add the sermon details, and we’ll handle the rest.</p>
+        </section>
+
+        <ol class="steps" aria-label="Publishing progress">
+          <li class="active"><span>1</span><div><strong>Video</strong><small>Choose the finished file</small></div></li>
+          <li><span>2</span><div><strong>Details</strong><small>Title, speaker, and date</small></div></li>
+          <li><span>3</span><div><strong>Review</strong><small>Check before publishing</small></div></li>
+        </ol>
+
+        <section class="workspace-card">
+          <div class="card-heading">
+            <div><p class="step-label">Step 1 of 3</p><h2>Choose the sermon video</h2></div>
+            <span class="file-hint">MP4 or MOV</span>
+          </div>
+
+          <label class="drop-zone" id="drop-zone" for="video-file">
+            <input id="video-file" type="file" accept="video/mp4,video/quicktime,.mp4,.mov" />
+            <span class="upload-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" width="28" height="28"><path d="M12 16V4m0 0L7.5 8.5M12 4l4.5 4.5M5 14v4a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </span>
+            <strong>Drag the finished video here</strong>
+            <span>or click to choose it from the iMac</span>
+            <em>Choose video</em>
+          </label>
+
+          <div class="selected-file" id="selected-file" hidden>
+            <div class="video-tile"><video id="video-preview" controls preload="metadata"></video></div>
+            <div class="file-copy"><strong id="file-name"></strong><span id="file-meta"></span></div>
+            <button id="remove-file" type="button" aria-label="Remove selected video">Remove</button>
+          </div>
+
+          <div class="card-footer">
+            <p><span class="lock-icon" aria-hidden="true">&#128274;</span> The original file stays private while it uploads.</p>
+            <button class="primary-button" id="continue-button" type="button" disabled>Continue to details <span aria-hidden="true">→</span></button>
+          </div>
+        </section>
+
+        <aside class="destination-strip">
+          <span>Publishing destinations</span>
+          <ul>
+            <li><b class="youtube">▶</b> YouTube</li>
+            <li><b class="church">P</b> Church Center</li>
+            <li><b class="podcast">●</b> Apple & Spotify</li>
+          </ul>
+        </aside>
+      </main>
+
+      <footer>Built for the PBC media team <span>•</span> Tulsa, Oklahoma</footer>
+    </div>
+
+    <script src="/app.js" type="module"></script>
+  </body>
+</html>
+
