@@ -4,6 +4,12 @@
   "main": "src/index.ts",
   "compatibility_date": "2026-08-23",
   "compatibility_flags": ["nodejs_compat"],
+  "routes": [
+    {
+      "pattern": "sermon-publisher.pbctulsa.org",
+      "custom_domain": true
+    }
+  ],
   "assets": {
     "binding": "ASSETS",
     "directory": "./public",
@@ -14,4 +20,3 @@
     "head_sampling_rate": 1
   }
 }
-
