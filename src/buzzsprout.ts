@@ -11,7 +11,7 @@ export function buzzsproutConfigured(env: Env): boolean {
 }
 
 class UploadError extends Error {
-  constructor(message: string, public status = 400) { super(message); }
+  constructor(message: string, public status = 400, public definiteRejection = false) { super(message); }
 }
 
 function object(value: unknown): value is Record<string, unknown> {
@@ -52,23 +52,82 @@ function videoId(value: unknown): string {
   return value;
 }
 
-async function api(env: Env, path: string, init: RequestInit = {}): Promise<Record<string, unknown>> {
+// Only return bounded JSON error messages, never raw HTML, headers or credentials.
+async function errorDetail(response: Response, env: Env): Promise<string> {
+  try {
+    const data = await readJson(response.body, 16_000);
+    if (!object(data)) return "";
+    const messages: string[] = [];
+    for (const key of ["error", "message", "errors"]) {
+      const value = data[key];
+      if (typeof value === "string") messages.push(value);
+      else if (Array.isArray(value)) messages.push(...value.filter((v): v is string => typeof v === "string"));
+      else if (object(value)) {
+        for (const field of ["title", "artist", "audio_file", "audio_url", "published_at", "guid", "base"]) {
+          const detail = value[field];
+          if (typeof detail === "string") messages.push(`${field}: ${detail}`);
+          else if (Array.isArray(detail)) messages.push(`${field}: ${detail.filter(v => typeof v === "string").join(", ")}`);
+        }
+      }
+    }
+    let message = messages.join("; ");
+    for (const name of ["BUZZSPROUT_API_TOKEN", "CLOUDFLARE_STREAM_TOKEN"]) {
+      const secret = binding(env, name);
+      if (secret) message = message.split(secret).join("[redacted]");
+    }
+    return message.replace(/https?:\/\/\S+|\S+@\S+|<[^>]*>/g, "[redacted]").replace(/[\x00-\x1f]/g, " ").slice(0, 400);
+  } catch { return ""; }
+}
+
+async function apiData(env: Env, path: string, init: RequestInit = {}): Promise<unknown> {
   const headers = new Headers(init.headers);
   headers.set("authorization", `Token token=${binding(env, "BUZZSPROUT_API_TOKEN")}`);
   headers.set("user-agent", "PBC Media Publisher (jtouthang@pbctulsa.org)");
   headers.set("accept", "application/json");
   // Never follow a redirect with the podcast credential or audio body.
-  const response = await fetch(`https://www.buzzsprout.com/api/${binding(env, "BUZZSPROUT_PODCAST_ID")}/${path}`, { ...init, headers, redirect: "error" });
+  const response = await fetch(`https://www.buzzsprout.com/api/${binding(env, "BUZZSPROUT_PODCAST_ID")}/${path}`, {
+    ...init, headers, redirect: "error", cache: "no-store",
+    signal: AbortSignal.timeout(init.body instanceof ReadableStream ? 600_000 : 30_000)
+  });
   if (!response.ok) {
-    await response.body?.cancel();
+    const detail = await errorDetail(response, env);
+    console.error(JSON.stringify({ event: "buzzsprout_api_error", method: init.method || "GET", status: response.status }));
     const reason = response.status === 401 || response.status === 403
-      ? "Buzzsprout rejected the connection. Ask the administrator to check the token and podcast ID."
+      ? `Buzzsprout rejected the connection (HTTP ${response.status}). Ask the administrator to check the token and podcast ID.`
       : `Buzzsprout could not complete this step (HTTP ${response.status}). Check the episode in Buzzsprout before retrying.`;
-    throw new UploadError(reason, 502);
+    throw new UploadError(detail ? `${reason} Details: ${detail}` : reason, 502,
+      [400, 401, 403, 404, 405, 413, 415, 422, 429].includes(response.status));
   }
-  const data = await readJson(response.body, 1_000_000);
+  // The documented list is complete. Never treat an incomplete list as absence.
+  if (/rel=["']?next\b/i.test(response.headers.get("link") || "")) {
+    await response.body?.cancel();
+    throw new UploadError("Buzzsprout returned an incomplete episode list. Ask the administrator to check the draft before retrying.", 502);
+  }
+  return readJson(response.body, 4_000_000);
+}
+
+async function api(env: Env, path: string, init: RequestInit = {}): Promise<Record<string, unknown>> {
+  const data = await apiData(env, path, init);
   if (!object(data)) throw new UploadError("Unexpected Buzzsprout response. Check the episode before retrying.", 502);
   return data;
+}
+
+async function findEpisode(env: Env, id: string): Promise<Record<string, unknown> | undefined> {
+  const episodes = await apiData(env, "episodes.json");
+  if (!Array.isArray(episodes) || !episodes.every(e => object(e) && typeof e.guid === "string" && /^\d+$/.test(String(e.id)))) {
+    throw new UploadError("Buzzsprout's episode list could not be checked. No new draft was created.", 502);
+  }
+  const matches = episodes.filter(e => e.guid === `pbc-youtube-${id}`);
+  if (matches.length > 1) throw new UploadError("More than one podcast episode matches this video. Ask the administrator to review them in Buzzsprout.", 409);
+  return matches[0];
+}
+
+function episodeState(episode: Record<string, unknown>) {
+  return {
+    id: String(episode.id),
+    audioUploaded: typeof episode.audio_url === "string" && Boolean(episode.audio_url),
+    published: episode.private === false && Boolean(episode.published_at)
+  };
 }
 
 // The file is streamed through the Worker, not held in memory or stored in Cloudflare.
@@ -103,6 +162,7 @@ function audioMultipart(body: ReadableStream<Uint8Array>, size: number, type: st
 
 export async function buzzsprout(request: Request, env: Env): Promise<Response> {
   const headers = { "content-type": "application/json", "cache-control": "no-store", "x-content-type-options": "nosniff" };
+  let creationAttempted = false;
   try {
     const url = new URL(request.url);
     // Cloudflare Access enforces the allow policy on this exact custom domain.
@@ -113,6 +173,13 @@ export async function buzzsprout(request: Request, env: Env): Promise<Response> 
     }
     if (!buzzsproutConfigured(env)) throw new UploadError("Buzzsprout is not connected yet. Ask the administrator to add the podcast ID and API token.", 503);
     const path = url.pathname;
+    // POST is read-only here; it ensures browsers send the Origin header.
+    if (path === "/api/buzzsprout/episodes/lookup" && request.method === "POST") {
+      const data = await readJson(request.body, 1000);
+      if (!object(data)) throw new UploadError("Invalid sermon details.");
+      const episode = await findEpisode(env, videoId(data.videoId));
+      return new Response(JSON.stringify({ episode: episode ? episodeState(episode) : null }), { headers });
+    }
     if (path === "/api/buzzsprout/episodes" && request.method === "POST") {
       if (!request.headers.get("content-type")?.startsWith("application/json")) throw new UploadError("Expected sermon details.");
       const data = await readJson(request.body, 16_000);
@@ -121,7 +188,10 @@ export async function buzzsprout(request: Request, env: Env): Promise<Response> 
       const title = textField(data, "title", 100, true);
       const artist = textField(data, "speaker", 80, true);
       const description = textField(data, "description", 6000);
+      const existing = await findEpisode(env, id);
+      if (existing) return new Response(JSON.stringify(episodeState(existing)), { headers });
       // Always start unpublished, even when the final user choice is Publish.
+      creationAttempted = true;
       const result = await api(env, "episodes.json", {
         method: "POST", headers: { "content-type": "application/json" },
         body: JSON.stringify({ title, artist, description, guid: `pbc-youtube-${id}`, private: true, published_at: null, email_user_after_audio_processed: true })
@@ -160,6 +230,9 @@ export async function buzzsprout(request: Request, env: Env): Promise<Response> 
     return new Response(JSON.stringify({ id: match[1], accepted: true }), { headers });
   } catch (error) {
     const known = error instanceof UploadError;
-    return new Response(JSON.stringify({ error: known ? error.message : "The Buzzsprout connection was interrupted. Check Buzzsprout before retrying the podcast step." }), { status: known ? error.status : 502, headers });
+    return new Response(JSON.stringify({
+      error: known ? error.message : "The Buzzsprout connection was interrupted. Check Buzzsprout before retrying the podcast step.",
+      creationUncertain: creationAttempted && !(known && error.definiteRejection)
+    }), { status: known ? error.status : 502, headers });
   }
 }

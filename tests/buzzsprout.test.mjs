@@ -42,6 +42,7 @@ test("creates only an unpublished draft with the video's GUID", async (t) => {
     assert.equal(url, "https://www.buzzsprout.com/api/123/episodes.json");
     assert.equal(init.headers.get("authorization"), "Token token=test-token");
     assert.equal(init.redirect, "error");
+    if (!init.method) return response([]);
     const body = JSON.parse(init.body);
     assert.equal(body.guid, `pbc-youtube-${id}`);
     assert.equal(body.private, true);
@@ -51,6 +52,76 @@ test("creates only an unpublished draft with the video's GUID", async (t) => {
   const result = await worker.fetch(request("episodes", "POST", JSON.stringify({ title: "Hope | Pastor | August 29, 2026", speaker: "Pastor", description: "Sermon", videoId: id }), { "content-type": "application/json" }), env);
   assert.equal(result.status, 201);
   assert.deepEqual(await result.json(), { id: "42" });
+});
+
+const createRequest = () => request("episodes", "POST", JSON.stringify({ title: "Hope", speaker: "Pastor", description: "Sermon", videoId: id }), { "content-type": "application/json" });
+const lookupRequest = () => request("episodes/lookup", "POST", JSON.stringify({ videoId: id }), { "content-type": "application/json" });
+
+test("lookup and create recover a matching episode without writing", async (t) => {
+  t.mock.method(globalThis, "fetch", async (url, init) => {
+    assert.equal(init.method, undefined);
+    return response([{ id: 42, guid: `pbc-youtube-${id}`, audio_url: "https://audio.example/sermon.mp3", private: false, published_at: "2026-08-30" }]);
+  });
+  const state = { id: "42", audioUploaded: true, published: true };
+  assert.deepEqual(await (await worker.fetch(lookupRequest(), env)).json(), { episode: state });
+  assert.deepEqual(await (await worker.fetch(createRequest(), env)).json(), state);
+});
+
+test("empty lookup returns no episode and never creates one", async (t) => {
+  const mock = t.mock.method(globalThis, "fetch", async (_, init) => {
+    assert.equal(init.method, undefined);
+    return response([]);
+  });
+  assert.deepEqual(await (await worker.fetch(lookupRequest(), env)).json(), { episode: null });
+  assert.equal(mock.mock.callCount(), 1);
+});
+
+test("failed, incomplete, malformed or ambiguous lookup blocks creation", async (t) => {
+  for (const result of [
+    () => response({ error: "unavailable" }, 503),
+    () => response({ episodes: [] }),
+    () => response([{ id: 42 }]),
+    () => response([{ id: 42, guid: `pbc-youtube-${id}` }, { id: 43, guid: `pbc-youtube-${id}` }]),
+    () => new Response("[]", { headers: { link: '<https://example.com>; rel="next"' } }),
+    () => new Response("x".repeat(4_000_001))
+  ]) {
+    const mock = t.mock.method(globalThis, "fetch", async (_, init) => {
+      assert.equal(init.method, undefined);
+      return result();
+    });
+    const res = await worker.fetch(createRequest(), env);
+    assert.ok(res.status >= 400);
+    assert.equal((await res.json()).creationUncertain, false);
+    assert.equal(mock.mock.callCount(), 1);
+    mock.mock.restore();
+  }
+});
+
+test("creation distinguishes definite rejection from an uncertain outcome", async (t) => {
+  for (const status of [401, 422, 429, 408, 409, 500]) {
+    const mock = t.mock.method(globalThis, "fetch", async (_, init) => !init.method ? response([]) : response({ errors: { title: ["is invalid"] } }, status));
+    const data = await (await worker.fetch(createRequest(), env)).json();
+    assert.equal(data.creationUncertain, [408, 409, 500].includes(status));
+    assert.match(data.error, new RegExp(`HTTP ${status}`));
+    assert.match(data.error, /title: is invalid/);
+    mock.mock.restore();
+  }
+});
+
+test("lost or malformed successful create responses remain uncertain", async (t) => {
+  for (const outcome of [() => { throw new Error("network lost"); }, () => response({}), () => new Response("not JSON", { status: 201 })]) {
+    const mock = t.mock.method(globalThis, "fetch", async (_, init) => !init.method ? response([]) : outcome());
+    assert.equal((await (await worker.fetch(createRequest(), env)).json()).creationUncertain, true);
+    mock.mock.restore();
+  }
+});
+
+test("structured upstream details redact the credential", async (t) => {
+  t.mock.method(globalThis, "fetch", async () => response({ message: "invalid test-token", authorization: "test-token", errors: { base: ["Try https://secret.example/token"] } }, 422));
+  const text = await (await worker.fetch(lookupRequest(), env)).text();
+  assert.ok(text.includes("[redacted]"));
+  assert.ok(!text.includes("test-token"));
+  assert.ok(!text.includes("secret.example"));
 });
 
 test("streams the audio as a multipart attachment to the existing draft", async (t) => {

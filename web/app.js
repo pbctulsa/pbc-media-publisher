@@ -221,8 +221,45 @@ async function podcastRequest(path, init) {
   let data;
   try { data = await response.json(); }
   catch { throw new Error("Your portal session may have expired. Sign in again, then reselect the same video to continue. Check Buzzsprout before retrying."); }
-  if (!response.ok) throw new Error(data.error || "Buzzsprout could not finish this step.");
+  if (!response.ok) {
+    const error = new Error(data.error || "Buzzsprout could not finish this step.");
+    error.creationUncertain = data.creationUncertain !== false;
+    throw error;
+  }
   return data;
+}
+
+function rememberPodcast(episode) {
+  if (!episode || !/^\d+$/.test(String(episode.id))) throw new Error("Buzzsprout did not confirm a valid episode ID. Retry to check for the draft.");
+  workflow.podcastId = String(episode.id);
+  workflow.podcastCreating = false;
+  workflow.podcastError = "";
+  if (episode.audioUploaded === true) workflow.podcastAudioUploaded = true;
+  if (episode.published === true) workflow.podcastPublished = true;
+  saveWorkflow();
+}
+
+async function recoverPodcast() {
+  let result;
+  try {
+    result = await podcastRequest("episodes/lookup", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ videoId: workflow.videoId })
+    });
+    if (!result || !("episode" in result)) throw new Error("Buzzsprout did not return an episode check result.");
+  } catch (error) {
+    throw new Error(`${error.message}${workflow.podcastError ? ` Previous attempt: ${workflow.podcastError}` : ""} No new draft was created during this check.`);
+  }
+  if (result.episode) { rememberPodcast(result.episode); return; }
+  const previous = workflow.podcastError ? ` Previous attempt: ${workflow.podcastError}` : "";
+  // Give an interrupted request time to finish before offering manual recovery.
+  if (Date.now() - (workflow.podcastAttemptedAt || 0) < 60_000) {
+    throw new Error(`No matching draft is visible yet. Wait one minute, then retry to check again.${previous}`);
+  }
+  if (!window.confirm("No matching draft was found in Buzzsprout. Check Buzzsprout and close any other publishing tabs first. If this sermon is already there, choose Cancel. Otherwise, choose OK to retry creating its podcast draft. Your YouTube video will not be uploaded again." + previous)) {
+    throw new Error(`Podcast retry cancelled. Check Buzzsprout before trying again.${previous}`);
+  }
+  // Do not clear the uncertainty flag until a new attempt or confirmed ID is saved.
 }
 
 function uploadPodcastAudio() {
@@ -251,18 +288,27 @@ async function publishPodcast(details) {
   if (!appConfig.buzzsproutConfigured) throw new Error("Buzzsprout setup is not complete yet.");
   progressTitle.textContent = "Preparing the Buzzsprout episode…";
   setProgress("", 0, "Your YouTube upload is saved. Preparing the podcast audio step…");
+  if (!workflow.podcastId && workflow.podcastCreating) await recoverPodcast();
   if (!workflow.podcastId) {
-    if (workflow.podcastCreating) throw new Error("The podcast draft could not be confirmed. Check Buzzsprout or ask the administrator before trying again; no second episode will be created here.");
     workflow.podcastCreating = true;
+    workflow.podcastAttemptedAt = Date.now();
     saveWorkflow();
-    const episode = await podcastRequest("episodes", {
-      method: "POST", headers: { "content-type": "application/json" },
-      body: JSON.stringify({ videoId: workflow.videoId, title: youtubeTitle(details), speaker: details.speaker, description: youtubeDescription(details) })
-    });
-    workflow.podcastId = episode.id;
-    workflow.podcastCreating = false;
-    saveWorkflow();
+    try {
+      const episode = await podcastRequest("episodes", {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ videoId: workflow.videoId, title: youtubeTitle(details), speaker: details.speaker, description: youtubeDescription(details) })
+      });
+      rememberPodcast(episode);
+    } catch (error) {
+      workflow.podcastError = error.message || "The draft creation response was lost.";
+      // Only a definite rejection allows a normal retry. Network/unknown outcomes
+      // stay in recovery mode, including workflows saved by the previous version.
+      if (error.creationUncertain === false) workflow.podcastCreating = false;
+      saveWorkflow();
+      throw error;
+    }
   }
+  if (workflow.podcastPublished && !workflow.podcastAudioUploaded) throw new Error("This episode is already published in Buzzsprout. Check it there before changing its audio.");
   if (!workflow.podcastAudioUploaded) {
     if (!chosenAudio) throw new Error("Reselect the same audio file to finish the podcast upload.");
     progressTitle.textContent = "Uploading audio to Buzzsprout…";
