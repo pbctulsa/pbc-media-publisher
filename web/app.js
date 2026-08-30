@@ -5,6 +5,11 @@ const YOUTUBE_SCOPES = [
 const YOUTUBE_CHUNK_BYTES = 8 * 1024 * 1024;
 const MAX_VIDEO_BYTES = 256 * 1024 ** 3;
 const MAX_YOUTUBE_TITLE_CHARACTERS = 100;
+const MAX_AUDIO_BYTES = 95_000_000;
+const audioInput = document.querySelector("#audio-file");
+const audioMeta = document.querySelector("#audio-meta");
+const removeAudio = document.querySelector("#remove-audio");
+const podcastVisibility = document.querySelector("#podcast-visibility");
 
 const input = document.querySelector("#video-file");
 const dropZone = document.querySelector("#drop-zone");
@@ -40,6 +45,27 @@ let chosenFile;
 let activeUpload = false;
 let uploadSessionUrl;
 let uploadOffset = 0;
+let chosenAudio;
+let workflow = {};
+let workflowKey;
+
+function saveWorkflow() {
+  // Persist confirmed destinations so a podcast retry does not upload another video.
+  localStorage.setItem(workflowKey, JSON.stringify(workflow));
+}
+
+function chooseAudio(file) {
+  if (activeUpload || uploadSessionUrl || workflow.podcastAudioUploaded) return;
+  if (file && (!/\.(mp3|m4a)$/i.test(file.name) || file.size <= 0 || file.size > MAX_AUDIO_BYTES)) {
+    window.alert("Choose an MP3 or M4A audio export smaller than 95 MB.");
+    audioInput.value = "";
+    file = undefined;
+  }
+  chosenAudio = file;
+  podcastVisibility.disabled = !file || Boolean(workflow.videoId);
+  removeAudio.hidden = !file;
+  audioMeta.textContent = file ? `${file.name} · ${formatBytes(file.size)} · For the existing Buzzsprout podcast` : "No audio selected. Video-only publishing is still available.";
+}
 
 const today = new Date();
 dateInput.value = [today.getFullYear(), String(today.getMonth() + 1).padStart(2, "0"), String(today.getDate()).padStart(2, "0")].join("-");
@@ -81,6 +107,7 @@ function setProgress(state, percent, message) {
 }
 
 function chooseFile(file) {
+  if (activeUpload || uploadSessionUrl || workflow.videoId) return;
   if (!file || !file.type.startsWith("video/")) {
     window.alert("Please choose an MP4 or MOV video file.");
     return;
@@ -91,20 +118,41 @@ function chooseFile(file) {
   }
   if (previewUrl) URL.revokeObjectURL(previewUrl);
   chosenFile = file;
+  workflowKey = `pbc-publisher:${JSON.stringify([file.name, file.size, file.lastModified])}`;
+  try {
+    workflow = JSON.parse(localStorage.getItem(workflowKey) || "{}");
+    if (!workflow || typeof workflow !== "object") workflow = {};
+    saveWorkflow();
+  } catch {
+    workflow = {};
+    window.alert("Allow browser storage before publishing. It protects against duplicate uploads when retrying.");
+    chosenFile = undefined;
+    return;
+  }
+  if (workflow.details) {
+    const d = workflow.details;
+    titleInput.value = d.title; speakerInput.value = d.speaker; dateInput.value = d.date;
+    scriptureInput.value = d.scripture; descriptionInput.value = d.description; visibilityInput.value = d.visibility;
+    podcastVisibility.value = workflow.podcastMode || "draft";
+  }
+  for (const field of [titleInput, speakerInput, dateInput, scriptureInput, descriptionInput, visibilityInput]) {
+    field.disabled = Boolean(workflow.videoId);
+  }
+  removeButton.disabled = Boolean(workflow.videoId);
   uploadSessionUrl = undefined;
   uploadOffset = 0;
   previewUrl = URL.createObjectURL(file);
   preview.src = previewUrl;
   reviewPreview.src = previewUrl;
   fileName.textContent = file.name;
-  fileMeta.textContent = `${formatBytes(file.size)} · Ready for YouTube`;
+  fileMeta.textContent = workflow.videoId ? "Video already uploaded — continue to finish any remaining steps" : `${formatBytes(file.size)} · Ready for YouTube`;
   dropZone.hidden = true;
   selectedFilePanel.hidden = false;
   detailsButton.disabled = false;
 }
 
 function clearFile() {
-  if (activeUpload) return;
+  if (activeUpload || uploadSessionUrl || workflow.videoId) return;
   input.value = "";
   chosenFile = undefined;
   uploadSessionUrl = undefined;
@@ -142,6 +190,9 @@ function fillReview() {
   document.querySelector("#review-date").textContent = friendlyDate(details.date);
   document.querySelector("#review-scripture").textContent = details.scripture || "—";
   document.querySelector("#review-visibility").textContent = details.visibility[0].toUpperCase() + details.visibility.slice(1);
+  document.querySelector("#review-audio").textContent = chosenAudio
+    ? `${chosenAudio.name} — ${podcastVisibility.value === "publish" ? "Publish to Buzzsprout" : "Unpublished draft in Buzzsprout"}`
+    : workflow.podcastAudioUploaded ? "Already uploaded to Buzzsprout" : "No podcast audio selected";
 }
 
 function youtubeDescription(details) {
@@ -158,6 +209,76 @@ async function loadConfig() {
   const response = await fetch("/api/config", { headers: { accept: "application/json" } });
   if (!response.ok) throw new Error("The publisher configuration could not be loaded.");
   appConfig = await response.json();
+  audioInput.disabled = !appConfig.buzzsproutConfigured;
+  document.querySelector("#audio-help").textContent = appConfig.buzzsproutConfigured
+    ? "Use the audio export from the same trimmed sermon. MP3 or M4A, up to 95 MB."
+    : "Buzzsprout setup is pending. Video uploads still work; an administrator must connect the podcast first.";
+  document.querySelector("#podcast-connection").textContent = appConfig.buzzsproutConfigured ? "audio optional" : "setup pending";
+}
+
+async function podcastRequest(path, init) {
+  const response = await fetch(`/api/buzzsprout/${path}`, init);
+  let data;
+  try { data = await response.json(); }
+  catch { throw new Error("Your portal session may have expired. Sign in again, then reselect the same video to continue. Check Buzzsprout before retrying."); }
+  if (!response.ok) throw new Error(data.error || "Buzzsprout could not finish this step.");
+  return data;
+}
+
+function uploadPodcastAudio() {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("PUT", `/api/buzzsprout/episodes/${workflow.podcastId}/audio`);
+    xhr.setRequestHeader("content-type", /\.mp3$/i.test(chosenAudio.name) ? "audio/mpeg" : "audio/mp4");
+    xhr.setRequestHeader("x-audio-size", String(chosenAudio.size));
+    xhr.setRequestHeader("x-youtube-video-id", workflow.videoId);
+    xhr.upload.addEventListener("progress", (event) => {
+      if (event.lengthComputable) setProgress("", event.loaded / event.total * 100, "Sending audio to Buzzsprout. Keep this page open for confirmation.");
+    });
+    xhr.addEventListener("load", () => {
+      try {
+        const data = JSON.parse(xhr.responseText);
+        if (xhr.status >= 200 && xhr.status < 300 && data.accepted) resolve(data);
+        else reject(new Error(data.error || "Buzzsprout did not accept the audio."));
+      } catch { reject(new Error("Audio upload could not be confirmed. Sign in again and check Buzzsprout before retrying.")); }
+    });
+    xhr.addEventListener("error", () => reject(new Error("The audio connection was interrupted. Your YouTube upload is saved; check Buzzsprout before retrying audio.")));
+    xhr.send(chosenAudio);
+  });
+}
+
+async function publishPodcast(details) {
+  if (!appConfig.buzzsproutConfigured) throw new Error("Buzzsprout setup is not complete yet.");
+  progressTitle.textContent = "Preparing the Buzzsprout episode…";
+  setProgress("", 0, "Your YouTube upload is saved. Preparing the podcast audio step…");
+  if (!workflow.podcastId) {
+    if (workflow.podcastCreating) throw new Error("The podcast draft could not be confirmed. Check Buzzsprout or ask the administrator before trying again; no second episode will be created here.");
+    workflow.podcastCreating = true;
+    saveWorkflow();
+    const episode = await podcastRequest("episodes", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ videoId: workflow.videoId, title: youtubeTitle(details), speaker: details.speaker, description: youtubeDescription(details) })
+    });
+    workflow.podcastId = episode.id;
+    workflow.podcastCreating = false;
+    saveWorkflow();
+  }
+  if (!workflow.podcastAudioUploaded) {
+    if (!chosenAudio) throw new Error("Reselect the same audio file to finish the podcast upload.");
+    progressTitle.textContent = "Uploading audio to Buzzsprout…";
+    setProgress("", 0, "The video is already on YouTube. Uploading the podcast audio next…");
+    await uploadPodcastAudio();
+    workflow.podcastAudioUploaded = true;
+    saveWorkflow();
+  }
+  if (workflow.podcastMode === "publish" && !workflow.podcastPublished) {
+    progressTitle.textContent = "Preparing podcast publication…";
+    await podcastRequest(`episodes/${workflow.podcastId}/publish`, {
+      method: "POST", headers: { "x-youtube-video-id": workflow.videoId }
+    });
+    workflow.podcastPublished = true;
+    saveWorkflow();
+  }
 }
 
 function requestYouTubeToken() {
@@ -302,48 +423,65 @@ async function addToSermonsPlaylist(accessToken, videoId) {
 
 async function publishSermon() {
   if (!chosenFile || activeUpload) return;
+  if (chosenAudio && !appConfig?.buzzsproutConfigured) { showStatus("Connect Buzzsprout before publishing with audio, or remove the audio to upload video only."); return; }
+  activeUpload = true;
   showStatus("");
   publishSuccess.hidden = true;
   publishButton.disabled = true;
   document.querySelectorAll("[data-back-to]").forEach((button) => { button.disabled = true; });
 
   try {
-    const accessToken = await requestYouTubeToken();
-    const details = sermonDetails();
-    activeUpload = true;
+    const accessToken = !workflow.videoId || !workflow.playlistAdded ? await requestYouTubeToken() : undefined;
+    const details = workflow.details || sermonDetails();
+    workflow.details = details;
+    workflow.wantsPodcast = workflow.wantsPodcast || Boolean(chosenAudio);
+    workflow.podcastMode = workflow.podcastMode || podcastVisibility.value;
+    saveWorkflow();
     progressTitle.textContent = "Uploading directly to YouTube…";
     setProgress("", uploadOffset / chosenFile.size * 100, "Starting the secure YouTube upload…");
 
-    if (!uploadSessionUrl) uploadSessionUrl = await startYouTubeSession(accessToken, details);
-    const video = await uploadToYouTube(accessToken);
+    if (!workflow.videoId) {
+      if (!uploadSessionUrl) uploadSessionUrl = await startYouTubeSession(accessToken, details);
+      const video = await uploadToYouTube(accessToken);
+      workflow.videoId = video.id;
+      saveWorkflow();
+    }
     uploadOffset = chosenFile.size;
     progressTitle.textContent = "Adding to the PBC Sermons playlist…";
     setProgress("", 100, "The video upload is complete. Finishing the playlist connection…");
 
-    let playlistAdded = true;
-    try { await addToSermonsPlaylist(accessToken, video.id); }
-    catch (error) { playlistAdded = false; showStatus(error.message); }
+    if (!workflow.playlistAdded) {
+      await addToSermonsPlaylist(accessToken, workflow.videoId);
+      workflow.playlistAdded = true;
+      saveWorkflow();
+    }
+    youtubeVideoLink.href = `https://youtu.be/${workflow.videoId}`;
+    if (workflow.wantsPodcast) await publishPodcast(details);
 
     activeUpload = false;
-    progressTitle.textContent = "Published to YouTube";
-    setProgress("complete", 100, playlistAdded ? "The daily Church Center sync will pick up this sermon." : "The video is on YouTube, but the playlist needs attention.");
-    youtubeVideoLink.href = `https://youtu.be/${video.id}`;
-    publishSuccess.querySelector("span").textContent = playlistAdded
-      ? "It is on YouTube and in the PBC Sermons playlist."
-      : "It is on YouTube, but could not be added to the sermon playlist automatically.";
+    progressTitle.textContent = workflow.wantsPodcast ? "Video and podcast audio sent" : "Published to YouTube";
+    setProgress("complete", 100, "The daily Church Center sync will pick up the video.");
+    publishSuccess.querySelector("span").textContent = workflow.wantsPodcast
+      ? workflow.podcastPublished ? "The video is on YouTube. Buzzsprout has accepted the podcast for publication; processing and podcast-app updates may take time." : "The video is on YouTube. The audio was sent to an unpublished Buzzsprout draft; check it there after processing."
+      : "It is on YouTube and in the PBC Sermons playlist.";
     publishSuccess.hidden = false;
     publishButton.hidden = true;
   } catch (error) {
     activeUpload = false;
     showStatus(error instanceof Error ? error.message : "The sermon could not be published.");
-    progressTitle.textContent = uploadOffset > 0 ? "Upload paused" : "Could not start upload";
-    if (!uploadProgress.hidden) setProgress("error", uploadOffset / chosenFile.size * 100, "Nothing was lost. Select Authorize & publish to retry or resume.");
+    progressTitle.textContent = workflow.videoId ? "Video saved — another step needs attention" : uploadOffset > 0 ? "Upload paused" : "Could not start upload";
+    if (!uploadProgress.hidden) setProgress("error", 0, workflow.videoId ? "Your YouTube video will not be uploaded again. Retry only the unfinished steps." : "Keep this page open to resume the video upload.");
+    if (workflow.videoId) publishButton.textContent = "Retry unfinished steps";
     publishButton.disabled = false;
-    document.querySelectorAll("[data-back-to]").forEach((button) => { button.disabled = false; });
+    document.querySelectorAll("[data-back-to]").forEach((button) => { button.disabled = Boolean(workflow.videoId || uploadSessionUrl); });
   }
 }
 
 input.addEventListener("change", () => chooseFile(input.files?.[0]));
+audioInput.addEventListener("change", () => {
+  chooseAudio(audioInput.files?.[0]);
+});
+removeAudio.addEventListener("click", () => { chooseAudio(undefined); if (!chosenAudio) audioInput.value = ""; });
 removeButton.addEventListener("click", clearFile);
 detailsButton.addEventListener("click", () => showStep(2));
 reviewButton.addEventListener("click", () => {
@@ -382,5 +520,7 @@ window.addEventListener("beforeunload", (event) => {
 
 loadConfig().catch((error) => {
   appConfig = {};
+  document.querySelector("#audio-help").textContent = "Could not check the podcast connection. Refresh the page before uploading audio.";
+  document.querySelector("#podcast-connection").textContent = "connection unavailable";
   console.error(error);
 });

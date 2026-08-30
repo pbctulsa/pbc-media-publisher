@@ -1,3 +1,5 @@
+import { buzzsprout, buzzsproutConfigured, MAX_AUDIO_BYTES } from "./buzzsprout";
+
 const SERMONS_PLAYLIST_ID = "PL55zozglajy_Nw-rQ-ydZeRjn1kyKnj8z";
 
 function json(body: unknown, init: ResponseInit = {}): Response {
@@ -26,9 +28,13 @@ export default {
       return json({
         youtubeConfigured: Boolean(youtubeClientId),
         youtubeClientId: youtubeClientId || null,
-        sermonsPlaylistId: SERMONS_PLAYLIST_ID
+        sermonsPlaylistId: SERMONS_PLAYLIST_ID,
+        buzzsproutConfigured: buzzsproutConfigured(env),
+        maxAudioBytes: MAX_AUDIO_BYTES
       });
     }
+
+    if (url.pathname.startsWith("/api/buzzsprout/")) return buzzsprout(request, env);
 
     if (url.pathname.startsWith("/api/")) {
       return json({ error: "Not found" }, { status: 404 });

@@ -23,13 +23,13 @@
 
       <main>
         <section class="intro">
-          <p class="eyebrow">One upload. Everywhere it needs to go.</p>
+          <p class="eyebrow">One place for video and podcast audio.</p>
           <h1>Publish this week’s sermon</h1>
-          <p>Choose the finished video from the church iMac, add the sermon details, and we’ll handle the rest.</p>
+          <p>Choose the finished video and optional podcast audio, then enter the sermon details once.</p>
         </section>
 
         <ol class="steps" aria-label="Publishing progress">
-          <li class="active" data-step-indicator="1"><span>1</span><div><strong>Video</strong><small>Choose the finished file</small></div></li>
+          <li class="active" data-step-indicator="1"><span>1</span><div><strong>Files</strong><small>Video and podcast audio</small></div></li>
           <li data-step-indicator="2"><span>2</span><div><strong>Details</strong><small>Title, speaker, and date</small></div></li>
           <li data-step-indicator="3"><span>3</span><div><strong>Review</strong><small>Check before publishing</small></div></li>
         </ol>
@@ -56,6 +56,13 @@
             <button id="remove-file" type="button" aria-label="Remove selected video">Remove</button>
           </div>
 
+          <div class="details-form">
+            <label class="form-field full"><span>Podcast audio (optional)</span><input id="audio-file" type="file" accept=".mp3,.m4a,audio/mpeg,audio/mp4" aria-describedby="audio-help audio-meta" disabled /></label>
+            <p id="audio-help" class="full">Checking Buzzsprout connection…</p>
+            <p id="audio-meta" class="full" role="status">No audio selected. Video-only publishing is still available.</p>
+            <button id="remove-audio" class="text-button" type="button" hidden>Remove audio</button>
+          </div>
+
           <div class="card-footer">
             <p>The video will upload directly to YouTube—no Cloudflare storage needed.</p>
             <button class="primary-button" id="details-button" type="button" disabled>Continue to details <span aria-hidden="true">→</span></button>
@@ -74,6 +81,7 @@
             <label class="form-field"><span>Sermon date *</span><input id="sermon-date" name="date" required type="date" /></label>
             <label class="form-field"><span>Scripture</span><input id="sermon-scripture" name="scripture" maxlength="120" placeholder="Example: John 3:16–21" /></label>
             <label class="form-field"><span>YouTube visibility *</span><select id="sermon-visibility" name="visibility"><option value="public">Public</option><option value="unlisted">Unlisted</option><option value="private">Private</option></select></label>
+            <label class="form-field full"><span>Buzzsprout audio</span><select id="podcast-visibility" disabled><option value="draft">Upload as an unpublished draft</option><option value="publish">Publish to the existing podcast after processing</option></select></label>
             <label class="form-field full"><span>Description</span><textarea id="sermon-description" name="description" rows="5" maxlength="4000" placeholder="Optional sermon summary or notes"></textarea></label>
           </form>
 
@@ -97,6 +105,7 @@
               <div><dt>Date</dt><dd id="review-date"></dd></div>
               <div><dt>Scripture</dt><dd id="review-scripture"></dd></div>
               <div><dt>Visibility</dt><dd id="review-visibility"></dd></div>
+              <div><dt>Podcast audio</dt><dd id="review-audio">Not selected</dd></div>
             </dl>
           </div>
 
@@ -125,7 +134,7 @@
           <ul>
             <li><b class="youtube">▶</b> YouTube</li>
             <li><b class="church">P</b> Church Center</li>
-            <li class="pending-destination"><b class="podcast">●</b> Podcast <small>coming next</small></li>
+            <li><b class="podcast">●</b> Buzzsprout <small id="podcast-connection">checking connection</small></li>
           </ul>
         </aside>
       </main>

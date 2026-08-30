@@ -69,6 +69,8 @@ main { width: min(920px, calc(100% - 40px)); margin: 58px auto 42px; flex: 1; }
 .details-form { padding: 2px 31px 31px; display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
 .form-field { display: flex; flex-direction: column; gap: 7px; }
 .form-field.full { grid-column: 1 / -1; }
+.details-form > p.full { grid-column: 1 / -1; margin: 0; color: var(--ink); font-size: 14px; overflow-wrap: anywhere; }
+input[type="file"]:disabled { opacity: .55; }
 .form-field > span { color: #43556f; font-size: 11px; font-weight: 700; }
 .form-field input, .form-field select, .form-field textarea { width: 100%; border: 1px solid #c9d6e6; border-radius: 9px; padding: 11px 12px; color: var(--ink); background: #fbfdff; outline: none; transition: border-color .16s, box-shadow .16s; }
 .form-field textarea { resize: vertical; line-height: 1.5; }
