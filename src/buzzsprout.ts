@@ -14,6 +14,20 @@ class UploadError extends Error {
   constructor(message: string, public status = 400, public definiteRejection = false) { super(message); }
 }
 
+// Classify exceptions without exposing arbitrary runtime messages or credentials.
+function failureReason(error: unknown): string {
+  if (!(error instanceof Error)) return "Unexpected Worker failure";
+  if (error.name === "TimeoutError") return "Buzzsprout request timed out";
+  if (error.name === "AbortError") return "Request was cancelled";
+  if (/redirect/i.test(error.message)) return "Buzzsprout redirected the request; redirect was blocked";
+  if (/cache.*(unsupported|not supported)|unsupported.*cache/i.test(error.message)) return "Worker rejected the request cache option";
+  if (/incomplete audio/i.test(error.message)) return "Audio transfer ended before the complete file arrived";
+  if (/too large/i.test(error.message)) return "Audio transfer exceeded the expected size";
+  if (/network|connection|fetch failed|socket/i.test(error.message)) return "Network connection failed";
+  if (error instanceof TypeError) return "Worker request or stream failed (TypeError)";
+  return "Unexpected Worker failure";
+}
+
 function object(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -163,6 +177,7 @@ function audioMultipart(body: ReadableStream<Uint8Array>, size: number, type: st
 export async function buzzsprout(request: Request, env: Env): Promise<Response> {
   const headers = { "content-type": "application/json", "cache-control": "no-store", "x-content-type-options": "nosniff" };
   let creationAttempted = false;
+  let stage = "validating the request";
   try {
     const url = new URL(request.url);
     // Cloudflare Access enforces the allow policy on this exact custom domain.
@@ -177,6 +192,7 @@ export async function buzzsprout(request: Request, env: Env): Promise<Response> 
     if (path === "/api/buzzsprout/episodes/lookup" && request.method === "POST") {
       const data = await readJson(request.body, 1000);
       if (!object(data)) throw new UploadError("Invalid sermon details.");
+      stage = "checking for an existing episode";
       const episode = await findEpisode(env, videoId(data.videoId));
       return new Response(JSON.stringify({ episode: episode ? episodeState(episode) : null }), { headers });
     }
@@ -188,10 +204,12 @@ export async function buzzsprout(request: Request, env: Env): Promise<Response> 
       const title = textField(data, "title", 100, true);
       const artist = textField(data, "speaker", 80, true);
       const description = textField(data, "description", 6000);
+      stage = "checking for an existing episode";
       const existing = await findEpisode(env, id);
       if (existing) return new Response(JSON.stringify(episodeState(existing)), { headers });
       // Always start unpublished, even when the final user choice is Publish.
       creationAttempted = true;
+      stage = "creating the podcast draft";
       const result = await api(env, "episodes.json", {
         method: "POST", headers: { "content-type": "application/json" },
         body: JSON.stringify({ title, artist, description, guid: `pbc-youtube-${id}`, private: true, published_at: null, email_user_after_audio_processed: true })
@@ -211,6 +229,7 @@ export async function buzzsprout(request: Request, env: Env): Promise<Response> 
       if (!Number.isSafeInteger(size) || size <= 0 || size > MAX_AUDIO_BYTES) throw new UploadError("Choose an MP3 or M4A smaller than 95 MB.", 413);
       if (!["audio/mpeg", "audio/mp4"].includes(type) || !request.body) throw new UploadError("Choose an MP3 or M4A audio file.");
     }
+    stage = "checking the podcast draft";
     const episode = await api(env, `episodes/${match[1]}.json`);
     if (episode.guid !== `pbc-youtube-${id}`) throw new UploadError("This episode does not match the selected sermon.", 403);
 
@@ -218,10 +237,12 @@ export async function buzzsprout(request: Request, env: Env): Promise<Response> 
       // Do not let a retry replace an already-published episode's audio.
       if (episode.private === false && episode.published_at) throw new UploadError("This podcast episode is already published. Manage any changes in Buzzsprout.", 409);
       const { stream, boundary } = audioMultipart(request.body, size, type);
+      stage = "uploading the podcast audio";
       await api(env, `episodes/${match[1]}.json`, { method: "PUT", headers: { "content-type": `multipart/form-data; boundary=${boundary}` }, body: stream });
     } else {
       if (!episode.audio_url) throw new UploadError("Buzzsprout is still processing the audio. Wait a little, then retry the podcast step.", 409);
       // Publishing is idempotent: preserve a previously confirmed publication date.
+      stage = "publishing the podcast episode";
       await api(env, `episodes/${match[1]}.json`, {
         method: "PUT", headers: { "content-type": "application/json" },
         body: JSON.stringify({ private: false, published_at: episode.published_at || new Date().toISOString() })
@@ -230,8 +251,16 @@ export async function buzzsprout(request: Request, env: Env): Promise<Response> 
     return new Response(JSON.stringify({ id: match[1], accepted: true }), { headers });
   } catch (error) {
     const known = error instanceof UploadError;
+    const diagnosticId = crypto.randomUUID();
+    const reason = known ? "Handled request error" : failureReason(error);
+    console.error(JSON.stringify({
+      event: "buzzsprout_step_failed", diagnosticId, stage, reason,
+      status: known ? error.status : 502,
+      creationUncertain: creationAttempted && !(known && error.definiteRejection)
+    }));
     return new Response(JSON.stringify({
-      error: known ? error.message : "The Buzzsprout connection was interrupted. Check Buzzsprout before retrying the podcast step.",
+      error: `${known ? error.message : `${reason} while ${stage}. Check Buzzsprout before retrying the podcast step.`} Reference: ${diagnosticId}`,
+      diagnosticId,
       creationUncertain: creationAttempted && !(known && error.definiteRejection)
     }), { status: known ? error.status : 502, headers });
   }
