@@ -57,6 +57,35 @@ test("creates only an unpublished draft with the video's GUID", async (t) => {
 const createRequest = () => request("episodes", "POST", JSON.stringify({ title: "Hope", speaker: "Pastor", description: "Sermon", videoId: id }), { "content-type": "application/json" });
 const lookupRequest = () => request("episodes/lookup", "POST", JSON.stringify({ videoId: id }), { "content-type": "application/json" });
 
+test("unexpected failures identify the step without leaking exception contents", async (t) => {
+  const logs = t.mock.method(console, "error", () => {});
+  t.mock.method(globalThis, "fetch", async () => {
+    throw new TypeError("fetch failed test-token https://private.example/secret volunteer@example.com");
+  });
+  const result = await worker.fetch(createRequest(), env);
+  const data = await result.json();
+  assert.equal(result.status, 502);
+  assert.equal(data.creationUncertain, false);
+  assert.match(data.error, /Network connection failed while checking for an existing episode/);
+  assert.ok(data.error.includes(data.diagnosticId));
+  const log = JSON.parse(logs.mock.calls[0].arguments[0]);
+  assert.equal(log.diagnosticId, data.diagnosticId);
+  const output = JSON.stringify([data, log]);
+  for (const secret of ["test-token", "private.example", "volunteer@example.com"]) assert.ok(!output.includes(secret));
+});
+
+test("draft creation timeout is identified and remains uncertain", async (t) => {
+  t.mock.method(console, "error", () => {});
+  t.mock.method(globalThis, "fetch", async (_, init) => {
+    if (!init.method) return response([]);
+    throw new DOMException("private details", "TimeoutError");
+  });
+  const data = await (await worker.fetch(createRequest(), env)).json();
+  assert.equal(data.creationUncertain, true);
+  assert.match(data.error, /timed out while creating the podcast draft/);
+  assert.ok(!data.error.includes("private details"));
+});
+
 test("lookup and create recover a matching episode without writing", async (t) => {
   t.mock.method(globalThis, "fetch", async (url, init) => {
     assert.equal(init.method, undefined);
